@@ -1,8 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const db = require('./database');
-const { getWhatsAppStatus, sendWhatsAppMessage } = require('./whatsapp');
-const { checkAndSendReminders } = require('./cron');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -174,25 +172,6 @@ app.post('/api/logs', (req, res) => {
   });
 });
 
-// 5. Get automated WhatsApp connection status & QR code
-app.get('/api/whatsapp/status', (req, res) => {
-  try {
-    const statusInfo = getWhatsAppStatus();
-    res.json(statusInfo);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 6. Manually trigger automatic reminder check (For testing)
-app.post('/api/whatsapp/test', async (req, res) => {
-  try {
-    await checkAndSendReminders();
-    res.json({ message: "Automated progress checked and reminders sent if target was incomplete." });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
