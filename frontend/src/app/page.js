@@ -52,6 +52,21 @@ export default function Home() {
   // API Backend Base URL
   const API_BASE = "http://localhost:5000/api";
 
+  const loadScript = (src) => {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[src="${src}"]`)) {
+        resolve();
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = src;
+      script.crossOrigin = "anonymous";
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  };
+
   // 1. Fetch User Data & Workout Logs
   const fetchData = async () => {
     try {
@@ -75,7 +90,9 @@ export default function Home() {
   };
 
   useEffect(() => {
-    fetchData();
+    setTimeout(() => {
+      fetchData();
+    }, 0);
   }, []);
 
   // 2. Load MediaPipe Scripts from CDN
@@ -92,21 +109,6 @@ export default function Home() {
     };
     loadMediaPipe();
   }, []);
-
-  const loadScript = (src) => {
-    return new Promise((resolve, reject) => {
-      if (document.querySelector(`script[src="${src}"]`)) {
-        resolve();
-        return;
-      }
-      const script = document.createElement("script");
-      script.src = src;
-      script.crossOrigin = "anonymous";
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  };
 
   // 3. Angle Calculations
   const calculateAngle = (a, b, c) => {
@@ -230,17 +232,44 @@ export default function Home() {
     }
   };
 
+  const saveWorkoutSession = async () => {
+    const calculatedScore = totalFramesRef.current > 0 
+      ? Math.round((goodFramesRef.current / totalFramesRef.current) * 100)
+      : 100;
+
+    try {
+      const res = await fetch(`${API_BASE}/logs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reps: repsCountRef.current,
+          posture_score: calculatedScore,
+        }),
+      });
+
+      if (res.ok) {
+        fetchData();
+        setReps(0);
+        repsCountRef.current = 0;
+      }
+    } catch (err) {
+      console.error("Failed to save workout session:", err);
+    }
+  };
+
   // 5. Start/Stop Camera Feed & Pose Tracker
   useEffect(() => {
     if (!scriptsLoaded) return;
 
     if (cameraActive) {
-      setReps(0);
+      setTimeout(() => {
+        setReps(0);
+        setSessionFrames(0);
+        setGoodPostureFrames(0);
+      }, 0);
       repsCountRef.current = 0;
       goodFramesRef.current = 0;
       totalFramesRef.current = 0;
-      setSessionFrames(0);
-      setGoodPostureFrames(0);
       repStateRef.current = "up";
 
       const pose = new window.Pose({
@@ -289,32 +318,8 @@ export default function Home() {
     return () => {
       if (cameraRef.current) cameraRef.current.stop();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraActive, scriptsLoaded]);
-
-  const saveWorkoutSession = async () => {
-    const calculatedScore = totalFramesRef.current > 0 
-      ? Math.round((goodFramesRef.current / totalFramesRef.current) * 100)
-      : 100;
-
-    try {
-      const res = await fetch(`${API_BASE}/logs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reps: repsCountRef.current,
-          posture_score: calculatedScore,
-        }),
-      });
-
-      if (res.ok) {
-        fetchData();
-        setReps(0);
-        repsCountRef.current = 0;
-      }
-    } catch (err) {
-      console.error("Failed to save workout session:", err);
-    }
-  };
 
   const handleUpdateSettings = async (e) => {
     e.preventDefault();
@@ -381,7 +386,7 @@ export default function Home() {
                 </div>
                 <span className="text-sm font-semibold text-slate-600">Daily Target</span>
               </div>
-              <span className="text-lg font-bold text-slate-800">{dailyTarget} Reps</span>
+              <span className="text-lg font-bold text-slate-800">{dailyTarget} Push-Ups</span>
             </div>
           </div>
 
@@ -454,7 +459,7 @@ export default function Home() {
               <Target className="w-4 h-4 text-blue-500" />
               <span className="text-xs font-semibold text-slate-500">Target</span>
             </div>
-            <span className="text-lg font-bold text-slate-800">{dailyTarget} Reps</span>
+            <span className="text-lg font-bold text-slate-800">{dailyTarget} Push-Ups</span>
           </div>
         </div>
 
@@ -514,7 +519,7 @@ export default function Home() {
                 {cameraActive && (
                   <>
                     <div className="absolute top-4 right-4 bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-2 md:px-5 md:py-3 text-center backdrop-blur-sm shadow-xl flex items-center gap-2 md:gap-3">
-                      <span className="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-widest">Reps</span>
+                      <span className="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-widest">Push-Ups</span>
                       <span className="text-3xl md:text-4xl font-black text-blue-400 tracking-tight">{reps}</span>
                     </div>
 
@@ -582,7 +587,7 @@ export default function Home() {
               <div>
                 <h3 className="font-extrabold text-base md:text-lg text-slate-900 flex items-center gap-2">
                   <Target className="w-5 h-5 text-blue-500" />
-                  Today's Progress
+                  Today&apos;s Progress
                 </h3>
                 <p className="text-[10px] md:text-xs text-slate-500 mt-1 font-medium">Your goal resets daily at midnight.</p>
               </div>
@@ -622,11 +627,11 @@ export default function Home() {
                 <div className="space-y-3 flex-1">
                   <div>
                     <span className="text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-widest">Completed</span>
-                    <p className="text-xl md:text-2xl font-black text-slate-800 mt-0.5">{repsToday} Reps</p>
+                    <p className="text-xl md:text-2xl font-black text-slate-800 mt-0.5">{repsToday} Push-Ups</p>
                   </div>
                   <div>
                     <span className="text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-widest">Remaining</span>
-                    <p className="text-sm md:text-md font-bold text-slate-600 mt-0.5">{remainingReps} Reps</p>
+                    <p className="text-sm md:text-md font-bold text-slate-600 mt-0.5">{remainingReps} Push-Ups</p>
                   </div>
                 </div>
 
@@ -653,7 +658,7 @@ export default function Home() {
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs md:text-sm font-black text-slate-850 text-slate-800">{log.reps} reps</span>
+                          <span className="text-xs md:text-sm font-black text-slate-855 text-slate-800">{log.reps} push-ups</span>
                           <span className={`text-[9px] md:text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
                             log.posture_score >= 80 
                               ? "bg-emerald-100 text-emerald-700" 
