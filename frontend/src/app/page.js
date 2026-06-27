@@ -131,17 +131,49 @@ export default function Home() {
     ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
     if (results.poseLandmarks) {
-      if (window.drawConnectors && window.drawLandmarks) {
-        window.drawConnectors(ctx, results.poseLandmarks, window.POSE_CONNECTIONS, {
-          color: "#2563eb",
-          lineWidth: 4,
-        });
-        window.drawLandmarks(ctx, results.poseLandmarks, {
-          color: "#10b981",
-          lineWidth: 2,
-          radius: 4,
-        });
-      }
+      // Draw premium body skeleton connections (ignoring face landmarks 0-10)
+      const bodyJoints = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+      const bodyConnections = [
+        [11, 13], [13, 15], // Left arm
+        [12, 14], [14, 16], // Right arm
+        [11, 23], [12, 24], // Torso sides
+        [11, 12], [23, 24], // Shoulders and Hips cross connections
+        [23, 25], [25, 27], // Left leg
+        [24, 26], [26, 28]  // Right leg
+      ];
+
+      // Draw connections
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "rgba(37, 99, 235, 0.85)";
+      bodyConnections.forEach(([i, j]) => {
+        const ptA = results.poseLandmarks[i];
+        const ptB = results.poseLandmarks[j];
+        if (ptA && ptB && ptA.visibility > 0.5 && ptB.visibility > 0.5) {
+          ctx.beginPath();
+          ctx.moveTo(ptA.x * canvas.width, ptA.y * canvas.height);
+          ctx.lineTo(ptB.x * canvas.width, ptB.y * canvas.height);
+          ctx.stroke();
+        }
+      });
+
+      // Draw joints (dots)
+      bodyJoints.forEach((i) => {
+        const pt = results.poseLandmarks[i];
+        if (pt && pt.visibility > 0.5) {
+          const cx = pt.x * canvas.width;
+          const cy = pt.y * canvas.height;
+          
+          ctx.beginPath();
+          ctx.arc(cx, cy, 7, 0, 2 * Math.PI);
+          ctx.fillStyle = "rgba(37, 99, 235, 0.9)";
+          ctx.fill();
+          
+          ctx.beginPath();
+          ctx.arc(cx, cy, 3.5, 0, 2 * Math.PI);
+          ctx.fillStyle = "#ffffff";
+          ctx.fill();
+        }
+      });
 
       const leftShoulder = results.poseLandmarks[11];
       const rightShoulder = results.poseLandmarks[12];
@@ -413,7 +445,7 @@ export default function Home() {
       </aside>
 
       {/* 2. MAIN CONTAINER */}
-      <main className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 space-y-6 md:space-y-8 overflow-y-auto max-h-screen">
+      <main className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 space-y-6 md:space-y-8 lg:overflow-y-auto lg:max-h-screen">
         
         {/* Header */}
         <header className="flex items-center justify-between border-b border-slate-200 pb-4 lg:border-b-0 lg:pb-0">
@@ -535,44 +567,44 @@ export default function Home() {
               </div>
 
               {cameraActive && (
-                <div className="p-3 md:p-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between gap-4">
-                  <div className="flex gap-3 md:gap-4 items-center">
-                    <span className="text-[10px] md:text-xs font-bold text-slate-600">
-                      Form: <span className="font-extrabold text-slate-800">{
+                <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center justify-around sm:justify-start gap-4 sm:gap-6 bg-slate-100/60 sm:bg-transparent p-2.5 sm:p-0 rounded-2xl w-full sm:w-auto">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-2 text-center sm:text-left">
+                      <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400">Form Score</span>
+                      <span className="text-sm sm:text-base font-black text-slate-800">{
                         sessionFrames > 0 
                           ? Math.round((goodPostureFrames / sessionFrames) * 100) 
                           : 100
                       }%</span>
-                    </span>
-                    <span className="text-slate-350">|</span>
-                    <span className="text-[10px] md:text-xs font-bold text-slate-650">
-                      Elbow: <span className="font-extrabold text-slate-800">{elbowAngleVal}°</span>
-                    </span>
+                    </div>
+                    <span className="text-slate-200 hidden sm:inline">|</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-2 text-center sm:text-left">
+                      <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400">Elbow Angle</span>
+                      <span className="text-sm sm:text-base font-black text-slate-800">{elbowAngleVal}°</span>
+                    </div>
                   </div>
                   
                   <button
                     onClick={() => setCameraActive(false)}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold bg-red-600 hover:bg-red-505 hover:bg-red-500 text-white shadow-lg shadow-red-600/20 transition-all text-xs"
+                    className="inline-flex items-center justify-center gap-2 px-5 py-3 sm:py-2.5 rounded-xl font-bold bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-600/20 transition-all text-xs w-full sm:w-auto active:scale-95"
                   >
                     <Square className="w-3.5 h-3.5 fill-white" />
-                    Stop & Save
+                    Stop & Save Workout
                   </button>
                 </div>
               )}
             </div>
 
             {/* Guide */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-4 md:p-5 flex flex-col md:flex-row gap-4 items-center justify-between shadow-sm">
-              <div className="flex items-center gap-4">
-                <div className="bg-blue-50 p-2.5 rounded-xl text-blue-600 flex-shrink-0">
-                  <RotateCcw className="w-5 h-5 md:w-6 md:h-6" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-xs md:text-sm text-slate-850 text-slate-800">How push-up form is calculated</h4>
-                  <p className="text-[10px] md:text-xs text-slate-500 mt-1 leading-relaxed">
-                    1. **Reps:** Counted when elbow angle bends below 95° and then fully extends above 150°.<br/>
-                    2. **Form:** Keeps back straight. Hip-shoulder-knee alignment angle must remain above 155°.
-                  </p>
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-4 md:p-5 flex flex-col sm:flex-row gap-4 items-start shadow-sm">
+              <div className="bg-blue-50 p-2.5 rounded-xl text-blue-600 flex-shrink-0">
+                <RotateCcw className="w-5 h-5 md:w-6 md:h-6" />
+              </div>
+              <div>
+                <h4 className="font-extrabold text-sm text-slate-800">How push-up form is calculated</h4>
+                <div className="text-xs text-slate-500 mt-2 space-y-1.5 leading-relaxed">
+                  <p>1. <strong className="text-slate-700">Push-Ups:</strong> Counted when elbow angle bends below 95° and then fully extends above 150°.</p>
+                  <p>2. <strong className="text-slate-700">Form Score:</strong> Keeps back straight. Hip-shoulder-knee alignment angle must remain above 155°.</p>
                 </div>
               </div>
             </div>
