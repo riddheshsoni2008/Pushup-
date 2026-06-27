@@ -50,7 +50,7 @@ export default function Home() {
   const totalFramesRef = useRef(0);
 
   // API Backend Base URL
-  const API_BASE = "http://localhost:5000/api";
+  const API_BASE = `${process.env.NEXT_PUBLIC_API_URL}/api`;
 
   const loadScript = (src) => {
     return new Promise((resolve, reject) => {
