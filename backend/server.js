@@ -1,6 +1,7 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const db = require('./database');
+const { User, Log } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -17,13 +18,18 @@ function getLocalDateString() {
 }
 
 // 1. Get user configuration & current status
-app.get('/api/user', (req, res) => {
-  db.get("SELECT * FROM users WHERE username = 'default'", (err, user) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+app.get('/api/user', async (req, res) => {
+  try {
+    let user = await User.findOne({ username: 'default' });
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      // Seed default user if not exists
+      user = await User.create({
+        username: 'default',
+        phone_number: '',
+        daily_target: 20,
+        streak: 0,
+        last_workout_date: null
+      });
     }
 
     // Check if streak is broken (i.e. more than 1 day has passed since last workout)
@@ -39,139 +45,125 @@ app.get('/api/user', (req, res) => {
       if (diffDays > 1 && user.last_workout_date !== today) {
         // Streak is broken! Reset it to 0
         currentStreak = 0;
-        db.run("UPDATE users SET streak = 0 WHERE username = 'default'");
+        user.streak = 0;
+        await user.save();
       }
     }
 
     // Get today's total reps to display progress
-    db.get(
-      "SELECT SUM(reps) as total_reps FROM logs WHERE date = (DATE('now', 'localtime'))",
-      (errLogs, rowLogs) => {
-        if (errLogs) {
-          return res.status(500).json({ error: errLogs.message });
-        }
-        res.json({
-          ...user,
-          streak: currentStreak,
-          reps_today: rowLogs.total_reps || 0
-        });
-      }
-    );
-  });
+    const todayLogs = await Log.find({ date: today });
+    const repsToday = todayLogs.reduce((sum, log) => sum + log.reps, 0);
+
+    res.json({
+      ...user.toObject(),
+      streak: currentStreak,
+      reps_today: repsToday
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 2. Update user settings (daily target, phone number)
-app.put('/api/user', (req, res) => {
-  const { daily_target, phone_number } = req.body;
-  if (!daily_target || isNaN(daily_target)) {
-    return res.status(400).json({ error: "Invalid daily target" });
-  }
-
-  db.run(
-    "UPDATE users SET daily_target = ?, phone_number = ? WHERE username = 'default'",
-    [daily_target, phone_number || ''],
-    function (err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json({ message: "Settings updated successfully" });
+app.put('/api/user', async (req, res) => {
+  try {
+    const { daily_target, phone_number } = req.body;
+    if (daily_target === undefined || isNaN(daily_target)) {
+      return res.status(400).json({ error: "Invalid daily target" });
     }
-  );
+
+    const user = await User.findOneAndUpdate(
+      { username: 'default' },
+      { daily_target: Number(daily_target), phone_number: phone_number || '' },
+      { new: true, upsert: true }
+    );
+
+    res.json({ message: "Settings updated successfully", user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 3. Get workout logs
-app.get('/api/logs', (req, res) => {
-  db.all("SELECT * FROM logs ORDER BY date DESC, id DESC LIMIT 50", (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    res.json(rows);
-  });
+app.get('/api/logs', async (req, res) => {
+  try {
+    const logs = await Log.find().sort({ date: -1, _id: -1 }).limit(50);
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 4. Log a new push-up session
-app.post('/api/logs', (req, res) => {
-  const { reps, posture_score } = req.body;
-  if (reps === undefined || posture_score === undefined) {
-    return res.status(400).json({ error: "reps and posture_score are required" });
-  }
+app.post('/api/logs', async (req, res) => {
+  try {
+    const { reps, posture_score } = req.body;
+    if (reps === undefined || posture_score === undefined) {
+      return res.status(400).json({ error: "reps and posture_score are required" });
+    }
 
-  const today = getLocalDateString();
+    const today = getLocalDateString();
 
-  db.serialize(() => {
     // Insert workout log
-    db.run(
-      "INSERT INTO logs (reps, posture_score) VALUES (?, ?)",
-      [reps, posture_score],
-      function (errLog) {
-        if (errLog) {
-          return res.status(500).json({ error: errLog.message });
+    await Log.create({ reps, posture_score, date: today });
+
+    // Fetch current user
+    let user = await User.findOne({ username: 'default' });
+    if (!user) {
+      user = await User.create({
+        username: 'default',
+        phone_number: '',
+        daily_target: 20,
+        streak: 0,
+        last_workout_date: null
+      });
+    }
+
+    // Sum today's reps
+    const todayLogs = await Log.find({ date: today });
+    const repsToday = todayLogs.reduce((sum, log) => sum + log.reps, 0);
+
+    const dailyTarget = user.daily_target;
+    let newStreak = user.streak;
+    let newLastWorkoutDate = user.last_workout_date;
+
+    // Check if we hit the daily target with this workout
+    // Only update streak if we haven't already locked in the streak for today
+    if (repsToday >= dailyTarget && user.last_workout_date !== today) {
+      if (user.last_workout_date) {
+        const lastDate = new Date(user.last_workout_date);
+        const todayDate = new Date(today);
+        const diffTime = Math.abs(todayDate - lastDate);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 1) {
+          // Completed on consecutive day: increment streak
+          newStreak += 1;
+        } else {
+          // Streak was broken or first time: reset to 1
+          newStreak = 1;
         }
-
-        // Fetch current user and sum of today's reps
-        db.get("SELECT * FROM users WHERE username = 'default'", (errUser, user) => {
-          if (errUser || !user) {
-            return res.status(500).json({ error: "Failed to fetch user state" });
-          }
-
-          db.get(
-            "SELECT SUM(reps) as total_reps FROM logs WHERE date = (DATE('now', 'localtime'))",
-            (errSum, sumRow) => {
-              if (errSum) {
-                return res.status(500).json({ error: "Failed to sum reps" });
-              }
-
-              const repsToday = sumRow.total_reps || 0;
-              const dailyTarget = user.daily_target;
-              let newStreak = user.streak;
-              let newLastWorkoutDate = user.last_workout_date;
-
-              // Check if we hit the daily target with this workout
-              // Only update streak if we haven't already locked in the streak for today
-              if (repsToday >= dailyTarget && user.last_workout_date !== today) {
-                if (user.last_workout_date) {
-                  const lastDate = new Date(user.last_workout_date);
-                  const todayDate = new Date(today);
-                  const diffTime = Math.abs(todayDate - lastDate);
-                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-                  if (diffDays === 1) {
-                    // Completed on consecutive day: increment streak
-                    newStreak += 1;
-                  } else {
-                    // Streak was broken or first time: reset to 1
-                    newStreak = 1;
-                  }
-                } else {
-                  // No previous workout: start streak at 1
-                  newStreak = 1;
-                }
-                newLastWorkoutDate = today;
-              }
-
-              db.run(
-                "UPDATE users SET streak = ?, last_workout_date = ? WHERE username = 'default'",
-                [newStreak, newLastWorkoutDate],
-                (updateErr) => {
-                  if (updateErr) {
-                    return res.status(500).json({ error: updateErr.message });
-                  }
-                  res.json({
-                    message: "Workout logged successfully",
-                    reps_today: repsToday,
-                    streak: newStreak,
-                    completed_today: repsToday >= dailyTarget
-                  });
-                }
-              );
-            }
-          );
-        });
+      } else {
+        // No previous workout: start streak at 1
+        newStreak = 1;
       }
-    );
-  });
-});
+      newLastWorkoutDate = today;
+    }
 
+    user.streak = newStreak;
+    user.last_workout_date = newLastWorkoutDate;
+    await user.save();
+
+    res.json({
+      message: "Workout logged successfully",
+      reps_today: repsToday,
+      streak: newStreak,
+      completed_today: repsToday >= dailyTarget
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);

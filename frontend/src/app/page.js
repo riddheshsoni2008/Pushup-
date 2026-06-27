@@ -48,6 +48,7 @@ export default function Home() {
   const repsCountRef = useRef(0);
   const goodFramesRef = useRef(0);
   const totalFramesRef = useRef(0);
+  const repFormGoodRef = useRef(true);
 
   // API Backend Base URL
   const API_BASE = `${process.env.NEXT_PUBLIC_API_URL}/api`;
@@ -194,7 +195,16 @@ export default function Home() {
       const hip = leftVisible ? leftHip : rightHip;
       const knee = leftVisible ? leftKnee : rightKnee;
 
-      if (shoulder.visibility > 0.5 && elbow.visibility > 0.5 && wrist.visibility > 0.5 && hip.visibility > 0.5) {
+      if (shoulder.visibility > 0.5 && elbow.visibility > 0.5 && wrist.visibility > 0.5 && hip.visibility > 0.5 && knee.visibility > 0.5) {
+        const isHorizontal = Math.abs(shoulder.x - hip.x) > Math.abs(shoulder.y - hip.y) * 0.75;
+        
+        if (!isHorizontal) {
+          setPostureWarning("⚠️ Please position your body horizontally to start push-ups.");
+          setPostureState("Get into position");
+          repStateRef.current = "up";
+          return;
+        }
+
         const elbowAngle = calculateAngle(shoulder, elbow, wrist);
         setElbowAngleVal(Math.round(elbowAngle));
 
@@ -224,16 +234,26 @@ export default function Home() {
           setGoodPostureFrames(goodFramesRef.current);
         }
 
+        // Track if posture goes bad at any point during the rep
+        if (repStateRef.current === "down" && !currentPostureGood) {
+          repFormGoodRef.current = false;
+        }
+
         if (elbowAngle < 95) {
           if (repStateRef.current === "up") {
             repStateRef.current = "down";
+            repFormGoodRef.current = currentPostureGood;
           }
         } else if (elbowAngle > 150) {
           if (repStateRef.current === "down") {
-            repsCountRef.current += 1;
-            setReps(repsCountRef.current);
+            if (repFormGoodRef.current && currentPostureGood) {
+              repsCountRef.current += 1;
+              setReps(repsCountRef.current);
+              playRepSound();
+            } else {
+              setPostureWarning("⚠️ Push-up not counted. Keep your posture perfect!");
+            }
             repStateRef.current = "up";
-            playRepSound();
           }
         }
 
@@ -304,6 +324,7 @@ export default function Home() {
       goodFramesRef.current = 0;
       totalFramesRef.current = 0;
       repStateRef.current = "up";
+      repFormGoodRef.current = true;
 
       const pose = new window.Pose({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,

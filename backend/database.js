@@ -1,61 +1,51 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const mongoose = require('mongoose');
 
-const dbPath = path.resolve(__dirname, 'pushups.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error connecting to SQLite database:', err.message);
-  } else {
-    console.log('Connected to SQLite database at:', dbPath);
-    initializeDatabase();
-  }
-});
+const mongoURI = process.env.MONGODB_URI;
 
-function initializeDatabase() {
-  db.serialize(() => {
-    // Create Users table
-    db.run(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        phone_number TEXT,
-        daily_target INTEGER DEFAULT 20,
-        streak INTEGER DEFAULT 0,
-        last_workout_date TEXT
-      )
-    `);
-
-    // Create Push-up Workout Logs table
-    db.run(`
-      CREATE TABLE IF NOT EXISTS logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        reps INTEGER NOT NULL,
-        posture_score REAL NOT NULL,
-        date TEXT DEFAULT (DATE('now', 'localtime'))
-      )
-    `);
-
-    // Seed default user if not exists
-    db.get("SELECT id FROM users WHERE username = 'default'", (err, row) => {
-      if (err) {
-        console.error('Error querying default user:', err.message);
-        return;
-      }
-      if (!row) {
-        db.run(
-          "INSERT INTO users (username, phone_number, daily_target, streak) VALUES (?, ?, ?, ?)",
-          ['default', '', 20, 0],
-          (insertErr) => {
-            if (insertErr) {
-              console.error('Error seeding default user:', insertErr.message);
-            } else {
-              console.log('Default user seeded successfully.');
-            }
-          }
-        );
-      }
-    });
-  });
+if (!mongoURI) {
+  console.error("Error: MONGODB_URI environment variable is not defined in .env file.");
+  process.exit(1);
 }
 
-module.exports = db;
+mongoose.connect(mongoURI)
+  .then(() => console.log('Connected to MongoDB Atlas successfully!'))
+  .catch((err) => {
+    console.error('Error connecting to MongoDB Atlas:', err.message);
+  });
+
+// Helper function to get local date string YYYY-MM-DD
+function getLocalDateString() {
+  const d = new Date();
+  const offset = d.getTimezoneOffset();
+  const localDate = new Date(d.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+}
+
+const userSchema = new mongoose.Schema({
+  username: { type: String, unique: true, default: 'default' },
+  phone_number: { type: String, default: '' },
+  daily_target: { type: Number, default: 20 },
+  streak: { type: Number, default: 0 },
+  last_workout_date: { type: String, default: null }
+}, {
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+const logSchema = new mongoose.Schema({
+  reps: { type: Number, required: true },
+  posture_score: { type: Number, required: true },
+  date: { type: String, default: getLocalDateString }
+}, {
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+const User = mongoose.model('User', userSchema);
+const Log = mongoose.model('Log', logSchema);
+
+module.exports = {
+  User,
+  Log,
+  mongoose
+};
