@@ -132,6 +132,52 @@ export default function Home() {
     ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
     if (results.poseLandmarks) {
+      const leftShoulder = results.poseLandmarks[11];
+      const rightShoulder = results.poseLandmarks[12];
+      const leftElbow = results.poseLandmarks[13];
+      const rightElbow = results.poseLandmarks[14];
+      const leftWrist = results.poseLandmarks[15];
+      const rightWrist = results.poseLandmarks[16];
+      const leftHip = results.poseLandmarks[23];
+      const rightHip = results.poseLandmarks[24];
+      const leftKnee = results.poseLandmarks[25];
+      const rightKnee = results.poseLandmarks[26];
+      
+      const leftVisible = leftShoulder.visibility > rightShoulder.visibility;
+      
+      const shoulder = leftVisible ? leftShoulder : rightShoulder;
+      const elbow = leftVisible ? leftElbow : rightElbow;
+      const wrist = leftVisible ? leftWrist : rightWrist;
+      const hip = leftVisible ? leftHip : rightHip;
+      const knee = leftVisible ? leftKnee : rightKnee;
+
+      // 1. Identify missing or low visibility key body parts
+      const missingParts = [];
+      if (!shoulder || shoulder.visibility <= 0.5) missingParts.push("shoulder");
+      if (!elbow || elbow.visibility <= 0.5) missingParts.push("elbow");
+      if (!wrist || wrist.visibility <= 0.5) missingParts.push("wrist");
+      if (!hip || hip.visibility <= 0.5) missingParts.push("hip");
+      if (!knee || knee.visibility <= 0.5) missingParts.push("knee");
+
+      const allVisible = missingParts.length === 0;
+
+      let isHorizontal = false;
+      let backAngle = 180;
+      let currentPostureGood = true;
+
+      if (allVisible) {
+        isHorizontal = Math.abs(shoulder.x - hip.x) > Math.abs(shoulder.y - hip.y) * 0.75;
+        backAngle = calculateAngle(shoulder, hip, knee);
+        if (backAngle < 155) {
+          currentPostureGood = false;
+        }
+      }
+
+      // Determine skeleton visual color: Red if any part is missing, not horizontal, or posture is bad.
+      const isPoseValid = allVisible && isHorizontal && currentPostureGood;
+      const lineColor = isPoseValid ? "rgba(37, 99, 235, 0.85)" : "rgba(239, 68, 68, 0.85)"; // Blue vs Red
+      const jointColor = isPoseValid ? "rgba(37, 99, 235, 0.9)" : "rgba(239, 68, 68, 0.9)";   // Blue vs Red
+
       // Draw premium body skeleton connections (ignoring face landmarks 0-10)
       const bodyJoints = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
       const bodyConnections = [
@@ -145,7 +191,7 @@ export default function Home() {
 
       // Draw connections
       ctx.lineWidth = 4;
-      ctx.strokeStyle = "rgba(37, 99, 235, 0.85)";
+      ctx.strokeStyle = lineColor;
       bodyConnections.forEach(([i, j]) => {
         const ptA = results.poseLandmarks[i];
         const ptB = results.poseLandmarks[j];
@@ -166,7 +212,7 @@ export default function Home() {
           
           ctx.beginPath();
           ctx.arc(cx, cy, 7, 0, 2 * Math.PI);
-          ctx.fillStyle = "rgba(37, 99, 235, 0.9)";
+          ctx.fillStyle = jointColor;
           ctx.fill();
           
           ctx.beginPath();
@@ -176,28 +222,8 @@ export default function Home() {
         }
       });
 
-      const leftShoulder = results.poseLandmarks[11];
-      const rightShoulder = results.poseLandmarks[12];
-      const leftElbow = results.poseLandmarks[13];
-      const rightElbow = results.poseLandmarks[14];
-      const leftWrist = results.poseLandmarks[15];
-      const rightWrist = results.poseLandmarks[16];
-      const leftHip = results.poseLandmarks[23];
-      const rightHip = results.poseLandmarks[24];
-      const leftKnee = results.poseLandmarks[25];
-      const rightKnee = results.poseLandmarks[26];
-      
-      const leftVisible = leftShoulder.visibility > rightShoulder.visibility;
-      
-      const shoulder = leftVisible ? leftShoulder : rightShoulder;
-      const elbow = leftVisible ? leftElbow : rightElbow;
-      const wrist = leftVisible ? leftWrist : rightWrist;
-      const hip = leftVisible ? leftHip : rightHip;
-      const knee = leftVisible ? leftKnee : rightKnee;
-
-      if (shoulder.visibility > 0.5 && elbow.visibility > 0.5 && wrist.visibility > 0.5 && hip.visibility > 0.5 && knee.visibility > 0.5) {
-        const isHorizontal = Math.abs(shoulder.x - hip.x) > Math.abs(shoulder.y - hip.y) * 0.75;
-        
+      // 2. Perform state transitions and warnings
+      if (allVisible) {
         if (!isHorizontal) {
           setPostureWarning("⚠️ Please position your body horizontally to start push-ups.");
           setPostureState("Get into position");
@@ -207,18 +233,16 @@ export default function Home() {
 
         const elbowAngle = calculateAngle(shoulder, elbow, wrist);
         setElbowAngleVal(Math.round(elbowAngle));
-
-        const backAngle = calculateAngle(shoulder, hip, knee);
         setBackAngleVal(Math.round(backAngle));
 
         totalFramesRef.current += 1;
         setSessionFrames(totalFramesRef.current);
 
-        let currentPostureGood = true;
-        if (backAngle < 155) {
-          currentPostureGood = false;
+        if (!currentPostureGood) {
           setPostureWarning("⚠️ Keep your back straight! Don't sag or raise your hips.");
           setPostureState("Sagging / High Hips");
+          
+          // Draw warning circle on hips
           ctx.beginPath();
           ctx.arc(hip.x * canvas.width, hip.y * canvas.height, 15, 0, 2 * Math.PI);
           ctx.strokeStyle = "#ef4444";
@@ -262,7 +286,7 @@ export default function Home() {
         ctx.fillText(`Elbow Angle: ${Math.round(elbowAngle)}°`, 20, 40);
         ctx.fillText(`Back Angle: ${Math.round(backAngle)}°`, 20, 65);
       } else {
-        setPostureWarning("Step back! Position your entire body in profile view.");
+        setPostureWarning(`Step back! Position your entire body in profile view. Missing: ${missingParts.join(", ")}`);
         setPostureState("Align your body");
       }
     }
