@@ -93,6 +93,7 @@ export default function Home() {
     setTimeout(() => {
       fetchData();
     }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 2. Load MediaPipe Scripts from CDN
